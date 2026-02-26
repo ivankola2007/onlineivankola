@@ -1,387 +1,332 @@
 /**
- * Lampa TV — Online Sources Plugin
+ * Lampa TV — Online Sources Plugin v3.0
  * Источники: Filmix, VeoVeo, ManGo, UaFlix, FXpro, FlixSOD, Alloha, HDRezka, HDVB
- * GitHub Pages: yourname.github.io/plugins/online_mod.js
  */
 
 (function () {
     'use strict';
 
-    /* ─────────────────────────────────────────
-       МАНИФЕСТ ПЛАГИНА
-    ───────────────────────────────────────── */
-    var manifest = {
-        type:    'online',
-        version: '2.0.0',
-        name:    'Online Sources',
-        description: 'Filmix, VeoVeo, ManGo, UaFlix, FXpro, FlixSOD, Alloha, HDRezka, HDVB',
-        component: 'online_sources'
-    };
-
-    /* ─────────────────────────────────────────
-       СПИСОК ИСТОЧНИКОВ
-       (убраны VIP-метки, добавлен Filmix)
-    ───────────────────────────────────────── */
+    /* ══════════════════════════════════════════════
+       КОНФИГ ИСТОЧНИКОВ (без VIP, добавлен Filmix)
+    ══════════════════════════════════════════════ */
     var SOURCES = [
-        {
-            id:      'filmix',
-            name:    'Filmix',
-            voices:  5,
-            active:  true,
-            apiBase: 'https://filmixapp.cyou/api/v2'
-        },
-        {
-            id:      'veoveo',
-            name:    'VeoVeo',
-            voices:  1,
-            active:  true,
-            apiBase: 'https://voidboost.net/embed'
-        },
-        {
-            id:      'mango',
-            name:    'ManGo [4K, HDR, +UA]',
-            voices:  6,
-            active:  true,
-            apiBase: 'https://mangomovies.top/api'
-        },
-        {
-            id:      'uaflix',
-            name:    'UaFlix',
-            voices:  1,
-            active:  true,
-            apiBase: 'https://uafix.net/api'
-        },
-        {
-            id:      'fxpro',
-            name:    'FXpro [4K, HDR, +UA]',
-            voices:  6,
-            active:  true,
-            apiBase: 'https://fxapi.top/api'
-        },
-        {
-            id:      'flixsod',
-            name:    'FlixSOD',
-            voices:  7,
-            active:  true,
-            apiBase: 'https://flixsod.com/api'
-        },
-        {
-            id:      'alloha',
-            name:    'Alloha [4K]',
-            voices:  6,
-            active:  true,
-            apiBase: 'https://alloha.tv/api'
-        },
-        {
-            id:      'hdrezka',
-            name:    'HDRezka',
-            voices:  7,
-            active:  true,
-            apiBase: 'https://rezka.ag/engine/ajax'
-        },
-        {
-            id:      'hdvb',
-            name:    'HDVB',
-            voices:  2,
-            active:  true,
-            apiBase: 'https://apivb.info/api'
-        }
+        { id: 'filmix',   name: 'Filmix',               voices: 5 },
+        { id: 'veoveo',   name: 'VeoVeo',                voices: 1 },
+        { id: 'mango',    name: 'ManGo [4K, HDR, +UA]',  voices: 6 },
+        { id: 'uaflix',   name: 'UaFlix',                voices: 1 },
+        { id: 'fxpro',    name: 'FXpro [4K, HDR, +UA]',  voices: 6 },
+        { id: 'flixsod',  name: 'FlixSOD',               voices: 7 },
+        { id: 'alloha',   name: 'Alloha [4K]',           voices: 6 },
+        { id: 'hdrezka',  name: 'HDRezka',                voices: 7 },
+        { id: 'hdvb',     name: 'HDVB',                  voices: 2 }
     ];
 
-    /* ─────────────────────────────────────────
-       ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-    ───────────────────────────────────────── */
-
-    /**
-     * Сохранить/получить настройки выбранного источника
-     */
-    function getSavedSource() {
-        try {
-            return Lampa.Storage.get('online_sources_selected', 'filmix');
-        } catch (e) {
-            return 'filmix';
+    /* ══════════════════════════════════════════════
+       ХРАНИЛИЩЕ
+    ══════════════════════════════════════════════ */
+    function store(key, val) {
+        if (val === undefined) {
+            try { return Lampa.Storage.get(key, ''); } catch (e) { return ''; }
         }
+        try { Lampa.Storage.set(key, val); } catch (e) {}
     }
 
-    function saveSource(id) {
-        try {
-            Lampa.Storage.set('online_sources_selected', id);
-        } catch (e) {}
-    }
-
-    /**
-     * Показать список источников (меню «Источник»)
-     */
-    function showSourceMenu(onSelect) {
-        var saved = getSavedSource();
-        var items = SOURCES.map(function (src) {
-            return {
-                title:    src.name + ' 🎙' + src.voices,
-                subtitle: src.id === saved ? '✔ Выбран' : '',
-                value:    src.id
-            };
-        });
-
-        Lampa.Select.show({
-            title: 'Источник',
-            items: items,
-            onBack: function () { Lampa.Controller.toggle('content'); },
-            onSelect: function (item) {
-                saveSource(item.value);
-                Lampa.Noty.show('Источник: ' + item.title.split(' 🎙')[0]);
-                if (typeof onSelect === 'function') onSelect(item.value);
-            }
-        });
-    }
-
-    /* ─────────────────────────────────────────
+    /* ══════════════════════════════════════════════
        КОМПОНЕНТ ОНЛАЙН-ПРОСМОТРА
-    ───────────────────────────────────────── */
-    function OnlineSourcesComponent(object) {
-        var network = new Lampa.Reguest();
-        var scroll  = new Lampa.Scroll({ mask: true, over: true });
-        var files   = new Lampa.Explorer(object);
-        var active_source = getSavedSource();
-        var source_data   = SOURCES.find(function(s){ return s.id === active_source; }) || SOURCES[0];
+    ══════════════════════════════════════════════ */
+    function OnlineComponent(object) {
+        var comp        = this;
+        var network     = new Lampa.Reguest();
+        var scroll      = new Lampa.Scroll({ mask: true, over: true });
+        var files       = new Lampa.Explorer(object);
+        var last_source = store('online_src_sel') || 'veoveo';
 
-        /* кнопка смены источника */
-        files.addHead({
-            title: '📡 ' + source_data.name,
-            subtitle: 'Нажмите для смены',
-            icon: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>',
-            onBack: function () { Lampa.Controller.toggle('content'); },
-            onSelect: function () {
-                showSourceMenu(function (id) {
-                    active_source = id;
-                    source_data   = SOURCES.find(function(s){ return s.id === id; }) || SOURCES[0];
-                    loadContent();
-                });
-            }
-        });
+        /* ── Заголовок с кнопкой смены источника ── */
+        var currentSrcName = function () {
+            var s = SOURCES.find(function (x) { return x.id === last_source; });
+            return s ? s.name : last_source;
+        };
 
-        /* загрузка контента через выбранный API */
-        function loadContent() {
-            files.loading(true);
-            var card    = object.card || {};
-            var title   = card.original_title || card.title || '';
-            var year    = card.year || '';
-            var imdb_id = card.imdb_id || '';
+        files.appendHead(Lampa.Template.get('explorer_filter', {
+            title: 'Источник: ' + currentSrcName(),
+            icon:  '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>'
+        }));
 
-            var params  = {
-                token: Lampa.Storage.get('online_sources_token_' + active_source, ''),
-                title: title,
-                year:  year,
-                imdb:  imdb_id
-            };
+        files.onHead = showMenu;
 
-            network.clear();
-
-            /* ---- Filmix ---- */
-            if (active_source === 'filmix') {
-                loadFilmix(card, params);
-
-            /* ---- HDVB / VeoVeo (общий API vb) ---- */
-            } else if (active_source === 'hdvb' || active_source === 'veoveo') {
-                loadVBSource(card, params);
-
-            /* ---- HDRezka ---- */
-            } else if (active_source === 'hdrezka') {
-                loadRezka(card, params);
-
-            /* ---- Все остальные (Alloha/ManGo/FXpro/UaFlix/FlixSOD) ---- */
-            } else {
-                loadGenericSource(card, params);
-            }
+        function showMenu() {
+            Lampa.Select.show({
+                title: 'Источник',
+                items: SOURCES.map(function (s) {
+                    return {
+                        title:    s.name + '  🎙' + s.voices,
+                        subtitle: s.id === last_source ? '✔ Активен' : '',
+                        value:    s.id
+                    };
+                }),
+                onBack:   function () { Lampa.Controller.toggle('content'); },
+                onSelect: function (item) {
+                    last_source = item.value;
+                    store('online_src_sel', last_source);
+                    Lampa.Noty.show('Источник: ' + item.title.split('  ')[0]);
+                    load();
+                }
+            });
         }
 
-        /* — Filmix — */
-        function loadFilmix(card, params) {
-            var token = Lampa.Storage.get('filmix_token', '');
-            if (!token) {
-                showTokenInput('filmix', 'Filmix Token', loadContent);
-                return;
-            }
-            var url = source_data.apiBase + '/post?id=' + (card.imdb_id || '') +
-                      '&user_dev_token=' + token +
+        /* ── Загрузка контента ── */
+        function load() {
+            files.loading(true);
+            network.clear();
+            scroll.clear();
+
+            var card = object.card || {};
+            var q = {
+                title:   card.original_title || card.title || '',
+                year:    card.year || '',
+                imdb_id: card.imdb_id || '',
+                tmdb_id: card.id || ''
+            };
+
+            if (last_source === 'filmix')       loadFilmix(q);
+            else if (last_source === 'hdrezka') loadRezka(q);
+            else if (last_source === 'hdvb' || last_source === 'veoveo') loadVB(q);
+            else loadGeneric(q);
+        }
+
+        /* ─── Filmix ─── */
+        function loadFilmix(q) {
+            var token = store('filmix_token');
+            if (!token) { askToken('filmix_token', 'Filmix Dev-токен', load); return; }
+
+            var url = 'https://filmixapp.cyou/api/v2/post?user_dev_token=' + token +
                       '&user_dev_apk=false';
+            if (q.imdb_id) url += '&imdb_id=' + q.imdb_id;
+            else url += '&title=' + encodeURIComponent(q.title);
+
             network.native(url, function (data) {
-                if (!data || !data.player_links) {
-                    files.empty(); return;
-                }
-                var items = parseFilmixLinks(data.player_links);
-                renderItems(items);
+                if (!data || !data.player_links) { files.empty(); return; }
+                var items = [];
+                var pl = data.player_links;
+                (pl.movie || []).forEach(function (v) {
+                    if (v.link) items.push({ title: '[Фильм] ' + v.label, url: v.link });
+                });
+                (pl.season || []).forEach(function (s) {
+                    (s.episodes || []).forEach(function (ep) {
+                        var u = ep.links && ep.links[0] ? ep.links[0].link : null;
+                        if (u) items.push({ title: 'S' + s.season_number + 'E' + ep.episode_number, url: u });
+                    });
+                });
+                render(items);
             }, function () { files.empty(); });
         }
 
-        function parseFilmixLinks(links) {
-            var result = [];
-            function push(label, url) {
-                if (url) result.push({ title: label, url: url, stream: true });
-            }
-            (links.movie || []).forEach(function(q){ push('[Фильм] ' + q.label, q.link); });
-            (links.season || []).forEach(function(s){
-                (s.episodes || []).forEach(function(ep){
-                    push('Сезон ' + s.season_number + ' Серия ' + ep.episode_number, ep.links && ep.links[0] && ep.links[0].link);
-                });
-            });
-            return result;
-        }
+        /* ─── HDVB / VeoVeo ─── */
+        function loadVB(q) {
+            var token = store('hdvb_token');
+            if (!token) { askToken('hdvb_token', 'HDVB / VeoVeo токен', load); return; }
 
-        /* — HDVB / VeoVeo — */
-        function loadVBSource(card, params) {
-            var token = Lampa.Storage.get('hdvb_token', '');
-            if (!token) { showTokenInput('hdvb_token', 'HDVB/VeoVeo Token', loadContent); return; }
-            var base = 'https://apivb.info/api/videos.json';
-            var url  = base + '?token=' + token +
-                       '&title=' + encodeURIComponent(params.title) +
-                       '&year='  + params.year;
-            if (params.imdb) url += '&imdb_id=' + params.imdb;
-            network.native(url, function(data){
-                if (!data || !data.length) { files.empty(); return; }
-                var items = data.map(function(v){
-                    return { title: v.title_ru || v.title_en, subtitle: v.year, url: v.iframe_url, stream: false };
-                });
-                renderItems(items);
-            }, function(){ files.empty(); });
-        }
+            var url = 'https://apivb.info/api/videos.json?token=' + token +
+                      '&title=' + encodeURIComponent(q.title) +
+                      '&year=' + q.year;
+            if (q.imdb_id) url += '&imdb_id=' + q.imdb_id;
 
-        /* — HDRezka — */
-        function loadRezka(card, params) {
-            var url = source_data.apiBase + '/search.php?do=search&subaction=search&q=' +
-                      encodeURIComponent(params.title);
-            network.native(url, function(data){
-                if (!data || !data.length) { files.empty(); return; }
-                renderItems(data.slice(0,10).map(function(v){
-                    return { title: v.title, subtitle: v.year, url: v.link, stream: false };
+            network.native(url, function (data) {
+                if (!Array.isArray(data) || !data.length) { files.empty(); return; }
+                render(data.map(function (v) {
+                    return { title: v.title_ru || v.title_en || q.title, subtitle: v.year, url: v.iframe_url };
                 }));
-            }, function(){ files.empty(); });
+            }, function () { files.empty(); });
         }
 
-        /* — Generic (Alloha, ManGo, FXpro, UaFlix, FlixSOD) — */
-        function loadGenericSource(card, params) {
-            var url = source_data.apiBase + '/search?title=' + encodeURIComponent(params.title) +
-                      '&year=' + params.year;
-            if (params.imdb) url += '&imdb=' + params.imdb;
-            network.native(url, function(data){
+        /* ─── HDRezka ─── */
+        function loadRezka(q) {
+            Lampa.Noty.show('HDRezka: поиск «' + q.title + '»');
+            var url = 'https://rezka.ag/?do=search&subaction=search&q=' + encodeURIComponent(q.title);
+            network.native(url, function (html) {
+                var items = [];
+                var re = /class="b-content__inline_item-link">\s*<a href="([^"]+)">([^<]+)<\/a>/g;
+                var m;
+                while ((m = re.exec(String(html))) !== null) {
+                    items.push({ title: m[2].trim(), url: m[1] });
+                    if (items.length >= 8) break;
+                }
+                render(items);
+            }, function () { files.empty(); });
+        }
+
+        /* ─── Alloha / ManGo / FXpro / UaFlix / FlixSOD ─── */
+        var GENERIC_API = {
+            alloha:  'https://alloha.tv/api',
+            mango:   'https://mangomovies.top/api',
+            fxpro:   'https://fxapi.top/api',
+            uaflix:  'https://uafix.net/api',
+            flixsod: 'https://flixsod.com/api'
+        };
+
+        function loadGeneric(q) {
+            var base = GENERIC_API[last_source] || 'https://alloha.tv/api';
+            var url  = base + '/search?title=' + encodeURIComponent(q.title) + '&year=' + q.year;
+            if (q.imdb_id) url += '&imdb=' + q.imdb_id;
+
+            network.native(url, function (data) {
                 var arr = Array.isArray(data) ? data : (data && data.results ? data.results : []);
                 if (!arr.length) { files.empty(); return; }
-                renderItems(arr.slice(0,15).map(function(v){
+                render(arr.slice(0, 20).map(function (v) {
                     return {
-                        title:    v.title || v.name || v.ru_title || params.title,
-                        subtitle: v.year || '',
-                        url:      v.iframe || v.link || v.url || '',
-                        stream:   false
+                        title:    v.title || v.name || v.ru_title || q.title,
+                        subtitle: String(v.year || ''),
+                        url:      v.iframe || v.link || v.url || ''
                     };
                 }));
-            }, function(){ files.empty(); });
+            }, function () { files.empty(); });
         }
 
-        /* — Рендер элементов — */
-        function renderItems(items) {
+        /* ─── Рендер списка ─── */
+        function render(items) {
             files.loading(false);
             if (!items || !items.length) { files.empty(); return; }
-            var elems = items.map(function(item){
-                return new Lampa.InteractionLine({
-                    title:    item.title,
+
+            items.forEach(function (item) {
+                var line = new Lampa.InteractionLine({
+                    title:    item.title || '—',
                     subtitle: item.subtitle || '',
-                    url:      item.url,
-                    onSelect: function(){
-                        if (item.stream) {
-                            Lampa.Player.play({ url: item.url, title: item.title });
-                            Lampa.Player.playlist([{ url: item.url, title: item.title }]);
-                        } else {
-                            Lampa.Player.play({ url: item.url, title: item.title });
-                            Lampa.Player.playlist([{ url: item.url, title: item.title }]);
-                        }
-                    }
+                    url:      item.url || ''
                 });
+
+                line.on('hover:enter', function () {
+                    Lampa.Player.play({ url: item.url, title: item.title });
+                    Lampa.Player.playlist([{ url: item.url, title: item.title }]);
+                });
+
+                scroll.append(line.render());
+                line.render()[0].addEventListener('visible', line.visible.bind(line));
             });
-            files.append(elems);
         }
 
-        /* — Запрос токена — */
-        function showTokenInput(key, label, cb) {
+        /* ─── Ввод токена ─── */
+        function askToken(key, label, cb) {
             files.loading(false);
             Lampa.Input.edit({
                 title:    'Введите ' + label,
                 value:    '',
-                onBack:   function(){ Lampa.Controller.toggle('content'); },
-                onSelect: function(val){
-                    Lampa.Storage.set(key, val);
-                    Lampa.Noty.show(label + ' сохранён');
+                onBack:   function () { Lampa.Controller.toggle('content'); },
+                onSelect: function (val) {
+                    store(key, val);
+                    Lampa.Noty.show(label + ' сохранён!');
                     cb();
                 }
             });
         }
 
-        /* — Lifecycle — */
-        this.start = function () {
+        /* ─── Lifecycle ─── */
+        comp.start = function () {
             Lampa.Controller.add('content', {
-                toggle: function () { Lampa.Controller.collectionSet(scroll); Lampa.Controller.collectionFocus(false, scroll); },
-                up:     function () { Navigator.move('up'); },
-                down:   function () { Navigator.move('down'); },
-                back:   this.back
+                toggle: function () {
+                    Lampa.Controller.collectionSet(scroll);
+                    Lampa.Controller.collectionFocus(false, scroll);
+                },
+                back: comp.back
             });
             Lampa.Controller.toggle('content');
-            loadContent();
+            load();
         };
 
-        this.back = function () { Lampa.Activity.backward(); };
-
-        this.render = function () { return scroll.render(); };
-
-        this.pause  = function () {};
-        this.stop   = function () { network.clear(); files.destroy(); scroll.destroy(); };
-        this.destroy = function () { network.clear(); files.destroy(); scroll.destroy(); };
+        comp.render  = function () { return scroll.render(); };
+        comp.back    = function () { Lampa.Activity.backward(); };
+        comp.pause   = function () {};
+        comp.stop    = function () { network.clear(); files.destroy(); scroll.destroy(); };
+        comp.destroy = comp.stop;
     }
 
-    /* ─────────────────────────────────────────
-       КНОПКА В КАРТОЧКЕ ФИЛЬМА/СЕРИАЛА
-       (появляется в меню «Смотреть»)
-    ───────────────────────────────────────── */
-    function addOnlineButton() {
-        if (window.online_sources_button_added) return;
-        window.online_sources_button_added = true;
+    /* ══════════════════════════════════════════════
+       КНОПКА В КАРТОЧКЕ
+    ══════════════════════════════════════════════ */
+    var SVG_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 
+    function hookCard() {
         Lampa.Listener.follow('full', function (e) {
             if (e.type !== 'complite') return;
 
-            var btn = Lampa.Template.get('button', {
-                icon: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
-                text: 'Онлайн ▶'
+            var object = e.object;
+            var card   = object.card || {};
+
+            /* ── создаём кнопку «Онлайн» ── */
+            var btn = Lampa.Template.get('full_start_button', {
+                title: 'Онлайн'
             });
+
+            /* fallback если шаблон не нашёлся */
+            if (!btn || !btn.length) {
+                btn = $('<div class="full-start__button selector">' +
+                        '<div class="full-start__button-icon">' + SVG_ICON + '</div>' +
+                        '<div class="full-start__button-name">Онлайн</div>' +
+                        '</div>');
+            }
 
             btn.on('hover:enter', function () {
                 Lampa.Activity.push({
                     url:       '',
-                    title:     'Онлайн — ' + (e.data.movie.title || ''),
-                    component: manifest.component,
-                    card:      e.data.movie,
-                    source:    getSavedSource()
+                    title:     'Онлайн — ' + (card.title || card.original_title || ''),
+                    component: 'online_sources_v3',
+                    card:      card,
+                    source:    'online'
                 });
             });
 
-            e.object.activity.render().find('.full-start__buttons').prepend(btn.render());
-            Lampa.Controller.toggle('full');
+            /* Вставляем первой кнопкой */
+            var wrap = object.activity.render().find('.full-start__buttons');
+            if (wrap.length) wrap.prepend(btn);
         });
     }
 
-    /* ─────────────────────────────────────────
-       РЕГИСТРАЦИЯ ПЛАГИНА
-    ───────────────────────────────────────── */
-    function init() {
-        Lampa.Component.add(manifest.component, OnlineSourcesComponent);
-        Lampa.Manifest.plugins = Lampa.Manifest.plugins || {};
-        Lampa.Manifest.plugins[manifest.component] = manifest;
-        addOnlineButton();
-        console.log('[Online Sources] плагин загружен ✔');
+    /* ══════════════════════════════════════════════
+       РЕГИСТРАЦИЯ В МЕНЮ «ИСТОЧНИК»
+       (отображается как пункт рядом с Торренты/Трейлеры)
+    ══════════════════════════════════════════════ */
+    function hookSource() {
+        Lampa.Listener.follow('full', function (e) {
+            if (e.type !== 'complite') return;
+
+            var object = e.object;
+            var card   = object.card || {};
+
+            /* Добавляем пункт «Онлайн» в секцию Источник */
+            if (object.addSource) {
+                object.addSource({
+                    icon:     SVG_ICON,
+                    title:    'Онлайн',
+                    subtitle: 'Filmix, VeoVeo, ManGo, HDRezka…',
+                    onSelect: function () {
+                        Lampa.Activity.push({
+                            url:       '',
+                            title:     'Онлайн — ' + (card.title || ''),
+                            component: 'online_sources_v3',
+                            card:      card,
+                            source:    'online'
+                        });
+                    }
+                });
+            }
+        });
     }
 
-    /* ждём готовности Lampa */
-    if (window.Lampa) {
-        init();
-    } else {
-        document.addEventListener('lampainit', init);
+    /* ══════════════════════════════════════════════
+       INIT
+    ══════════════════════════════════════════════ */
+    function init() {
+        Lampa.Component.add('online_sources_v3', OnlineComponent);
+        hookSource();
+        hookCard();
+        console.log('[Online Sources v3] ✔ Загружен');
     }
+
+    /* Надёжное ожидание загрузки Lampa */
+    var _t = setInterval(function () {
+        if (window.Lampa && Lampa.Listener && Lampa.Component && Lampa.Storage) {
+            clearInterval(_t);
+            init();
+        }
+    }, 100);
 
 })();
